@@ -1,10 +1,10 @@
 # distance function
-import pandas as pd
 import numpy as np
-from geopy.distance import great_circle
+import pandas as pd
 import plotly.graph_objects as go
-from scipy.cluster.hierarchy import dendrogram, linkage
+from geopy.distance import great_circle
 from matplotlib import pyplot as plt
+from scipy.cluster.hierarchy import dendrogram, linkage
 
 eps = 20  # meters
 
@@ -44,6 +44,8 @@ df = pd.DataFrame(df)
 df_gr = df.groupby(['route'])
 routes = pd.DataFrame(columns=['Route', 'Points'])
 for route, group in df_gr:
+    # if route.startswith('#'):
+    #     continue
     path_points = [row[['lat', 'lng']].to_numpy() for row_index, row in group.iterrows()]
     routes = routes.append({'Route': route, 'Points': path_points}, ignore_index=True)
 
@@ -58,7 +60,8 @@ for i, val in routes.iterrows():
         mode="markers+lines",
         lat=[round(x[0], 5) for x in points],
         lon=[round(x[1], 5) for x in points],
-        marker={'size': 10}))
+        marker={'size': 10},
+        line=dict(width=5)))
 
 dist_m = []
 
@@ -72,9 +75,19 @@ for i, val1 in routes.iterrows():
 
         route2 = val2['Points']
         c = lcs(route1, route2)
+        c2 = lcs(route2, route1)
 
-        distance = c[-1][-1] / len(route1)
-        dist_row.append(distance)
+        sim = c[-1][-1] / len(route1)
+        sim2 = c2[-1][-1] / len(route2)
+
+        if sim < sim2:
+            sim = sim2
+            c = c2
+            t = route1
+            route1 = route2
+            route2 = t
+
+        dist_row.append(1 - sim)
 
         m = len(route1)
         n = len(route2)
@@ -90,10 +103,10 @@ for i, val1 in routes.iterrows():
 
         map_plot.add_trace(go.Scattermapbox(
             name="LCS (Route " + str(name1) + "; Route " + str(name2) + ")",
-            mode="markers+lines",
+            mode="markers",
             lat=list(map(lambda x: round(x[0], 5), common_part)),
             lon=list(map(lambda x: round(x[1], 5), common_part)),
-            marker={'size': 10}))
+            marker={'size': 15}))
 
     dist_m.append(dist_row)
 
@@ -109,8 +122,12 @@ map_plot.update_layout(
 
 map_plot.show()
 
+print('dist_m')
+print(dist_m)
 # Perform hierarchical/agglomerative clustering
 Z = linkage(dist_m, 'ward')
 fig = plt.figure(figsize=(25, 10))
+print('Z')
+print(Z)
 dn = dendrogram(Z)
 plt.show()
