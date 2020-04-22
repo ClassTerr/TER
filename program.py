@@ -1,13 +1,12 @@
-# distance function
+import alphashape
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from geopy.distance import great_circle
 from matplotlib import pyplot as plt
-from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.cluster.hierarchy import linkage, fcluster
 
 eps = 20  # meters
-
 
 # least common subsequence
 def lcs(r1, r2):
@@ -57,11 +56,11 @@ for i, val in routes.iterrows():
     points = val['Points']
     map_plot.add_trace(go.Scattermapbox(
         name="Route " + name,
-        mode="markers+lines",
+        mode="markers+lines"
         lat=[round(x[0], 5) for x in points],
         lon=[round(x[1], 5) for x in points],
-        marker={'size': 10},
-        line=dict(width=5)))
+        marker={'size': 6},
+        line=dict(width=4)))
 
 dist_m = []
 
@@ -88,39 +87,40 @@ for i, val1 in routes.iterrows():
             route2 = t
 
         dist_row.append(1 - sim)
-
-        m = len(route1)
-        n = len(route2)
-
-        common_part = back_track(c, route1, route2, m, n)
-
-        if i >= j:
-            continue
-
-        # add lcs to map
-        name1 = str(val1['Route'])
-        name2 = str(val2['Route'])
-
-        map_plot.add_trace(go.Scattermapbox(
-            name="LCS (Route " + str(name1) + "; Route " + str(name2) + ")",
-            mode="markers",
-            lat=list(map(lambda x: round(x[0], 5), common_part)),
-            lon=list(map(lambda x: round(x[1], 5), common_part)),
-            marker={'size': 15}))
+        #
+        # m = len(route1)
+        # n = len(route2)
+        #
+        # common_part = back_track(c, route1, route2, m, n)
+        #
+        # if i >= j:
+        #     continue
+        #
+        # # add lcs to map
+        # name1 = str(val1['Route'])
+        # name2 = str(val2['Route'])
+        #
+        # map_plot.add_trace(go.Scattermapbox(
+        #     name="LCS (Route " + str(name1) + "; Route " + str(name2) + ")",
+        #     mode="markers",
+        #     lat=list(map(lambda x: round(x[0], 5), common_part)),
+        #     lon=list(map(lambda x: round(x[1], 5), common_part)),
+        #     marker={'size': 15}))
 
     dist_m.append(dist_row)
+
+minLat = df.lat.min()
+minLng = df.lng.min()
 
 map_plot.update_layout(
     title='LCS',
     autosize=True,
     margin={'l': 1, 't': 1, 'b': 1, 'r': 1},
     mapbox={
-        'center': {'lon': df.lng.mean(),
-                   'lat': df.lat.mean()},
+        'center': {'lon': minLng + (df.lng.max() - minLng) / 2,
+                   'lat': minLat + (df.lat.max() - minLat) / 2},
         'style': "stamen-terrain",
-        'zoom': 15.5})
-
-map_plot.show()
+        'zoom': 14.5})
 
 print('dist_m')
 print(dist_m)
@@ -129,5 +129,38 @@ Z = linkage(dist_m, 'ward')
 fig = plt.figure(figsize=(25, 10))
 print('Z')
 print(Z)
-dn = dendrogram(Z)
-plt.show()
+# dn = dendrogram(Z)
+# plt.show()
+
+# by dendrogram we found optimal distance is:
+max_d = 1.5
+clusters = fcluster(Z, max_d, criterion='distance')
+print('clusters')
+print(clusters)
+
+routes['Cluster'] = clusters
+
+clusteredRoutes = routes.groupby(['Cluster'])
+print('clusteredRoutes')
+print(clusteredRoutes)
+for cluster, cl_routes in clusteredRoutes:
+    coords = []
+    for i, r in cl_routes.iterrows():
+        for item in r['Points']:
+            coords.append([round(x, 5) for x in list(item)])
+
+    lat = []
+    lng = []
+
+    hull = alphashape.alphashape(coords, 10)
+    hull_pts = hull.exterior.coords.xy
+
+    map_plot.add_trace(go.Scattermapbox(
+        fill="toself",
+        mode="none",
+        name="Cluster #" + str(cluster),
+        lat=list(hull_pts[0]),
+        lon=list(hull_pts[1]),
+        opacity=0.5))
+
+map_plot.show()
