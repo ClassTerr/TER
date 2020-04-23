@@ -56,7 +56,7 @@ for i, val in routes.iterrows():
     points = val['Points']
     map_plot.add_trace(go.Scattermapbox(
         name="Route " + name,
-        mode="markers+lines"
+        mode="markers+lines",
         lat=[round(x[0], 5) for x in points],
         lon=[round(x[1], 5) for x in points],
         marker={'size': 6},
