@@ -1,12 +1,176 @@
-import alphashape
+import pathlib
+import pickle
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from geopy.distance import great_circle
-from matplotlib import pyplot as plt
-from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 
-eps = 20  # meters
+eps = 50  # meters
+recalculate_distances = False
+
+palette = [
+    '#FF0000',
+    '#00FF00',
+    '#0000FF',
+    '#00FFFF',
+    '#FF00FF',
+    '#FF8080',
+    '#80FF80',
+    '#8080FF',
+    '#FFFF00',
+    '#008080',
+    '#800080',
+    '#808000',
+    '#FFFF80',
+    '#80FFFF',
+    '#FF80FF',
+    '#FF0080',
+    '#80FF00',
+    '#0080FF',
+    '#00FF80',
+    '#8000FF',
+    '#FF8000',
+    '#000080',
+    '#800000',
+    '#008000',
+    '#FF4040',
+    '#40FF40',
+    '#4040FF',
+    '#004040',
+    '#400040',
+    '#404000',
+    '#804040',
+    '#408040',
+    '#404080',
+    '#FFFF40',
+    '#40FFFF',
+    '#FF40FF',
+    '#FF0040',
+    '#40FF00',
+    '#0040FF',
+    '#FF8040',
+    '#40FF80',
+    '#8040FF',
+    '#00FF40',
+    '#4000FF',
+    '#FF4000',
+    '#000040',
+    '#400000',
+    '#004000',
+    '#008040',
+    '#400080',
+    '#804000',
+    '#80FF40',
+    '#4080FF',
+    '#FF4080',
+    '#800040',
+    '#408000',
+    '#004080',
+    '#808040',
+    '#408080',
+    '#804080',
+    '#C0C0C0',
+    '#FFC0C0',
+    '#C0FFC0',
+    '#C0C0FF',
+    '#00C0C0',
+    '#C000C0',
+    '#C0C000',
+    '#80C0C0',
+    '#C080C0',
+    '#C0C080',
+    '#40C0C0',
+    '#C040C0',
+    '#C0C040',
+    '#FFFFC0',
+    '#C0FFFF',
+    '#FFC0FF',
+    '#FF00C0',
+    '#C0FF00',
+    '#00C0FF',
+    '#FF80C0',
+    '#C0FF80',
+    '#80C0FF',
+    '#FF40C0',
+    '#C0FF40',
+    '#40C0FF',
+    '#00FFC0',
+    '#C000FF',
+    '#FFC000',
+    '#0000C0',
+    '#C00000',
+    '#00C000',
+    '#0080C0',
+    '#C00080',
+    '#80C000',
+    '#0040C0',
+    '#C00040',
+    '#40C000',
+    '#80FFC0',
+    '#C080FF',
+    '#FFC080',
+    '#8000C0',
+    '#C08000',
+    '#00C080',
+    '#8080C0',
+    '#C08080',
+    '#80C080',
+    '#8040C0',
+    '#C08040',
+    '#40C080',
+    '#40FFC0',
+    '#C040FF',
+    '#FFC040',
+    '#4000C0',
+    '#C04000',
+    '#00C040',
+    '#4080C0',
+    '#C04080',
+    '#80C040',
+    '#4040C0',
+    '#C04040',
+    '#40C040',
+    '#202020',
+    '#FF2020',
+    '#20FF20',
+    '#FFFFFF',
+    '#000000']
+
+
+def calculate_dist_matrix():
+    dist_m = []
+    totalCompCount = len(routes) * len(routes)
+    curr = 0
+    for i, val1 in routes.iterrows():
+        dist_row = []
+        route1 = val1['Points']
+        for j, val2 in routes.iterrows():
+            curr += 1
+            print('Comparing (' + str(curr) + ' of ' + str(totalCompCount) + ')')
+            if i == j:
+                dist_row.append(0)
+                continue
+
+            route2 = val2['Points']
+            c = lcs(route1, route2)
+            c2 = lcs(route2, route1)
+
+            sim = c[-1][-1] / len(route1)
+            sim2 = c2[-1][-1] / len(route2)
+
+            if sim < sim2:
+                sim = sim2
+                route1 = route2
+
+            dist_row.append(1 - sim)
+
+        dist_m.append(dist_row)
+
+    return dist_m
+
 
 # least common subsequence
 def lcs(r1, r2):
@@ -16,8 +180,9 @@ def lcs(r1, r2):
     c = [[0] * (n1 + 1) for _ in range(n0 + 1)]
     for i in range(1, n0 + 1):
         for j in range(1, n1 + 1):
-            if great_circle(tuple([r1[i - 1]]), tuple([r2[j - 1]])).meters < eps:
-                c[i][j] = c[i - 1][j - 1] + 1
+            d = great_circle(tuple([r1[i - 1]]), tuple([r2[j - 1]])).meters
+            if d < eps:
+                c[i][j] = c[i - 1][j - 1] + (1 - d / eps)
             else:
                 c[i][j] = max(c[i][j - 1], c[i - 1][j])
     return c
@@ -37,77 +202,59 @@ def back_track(c, r1, r2, i, j):
             return back_track(c, r1, r2, i - 1, j)
 
 
-# read data
-df = pd.read_csv("waypoints.csv")
+def rounded_indices(ls, max_length):
+    coeff = len(ls) / max_length
+    if coeff <= 1:
+        return ls
+
+    result = []
+    original_index = 0
+    new_index = 0
+    while new_index < len(ls):
+        result.append(ls[new_index])
+        original_index += 1
+        new_index = int(round(coeff * original_index))
+
+    return result
+
+
+df = pd.read_csv("go_track_trackspoints.csv")
 df = pd.DataFrame(df)
 df_gr = df.groupby(['route'])
 routes = pd.DataFrame(columns=['Route', 'Points'])
+
+route_number = 0
+
 for route, group in df_gr:
-    # if route.startswith('#'):
-    #     continue
+    route_number += 1
+    # if route_number == 20:
+    #     break
+
     path_points = [row[['lat', 'lng']].to_numpy() for row_index, row in group.iterrows()]
+    if len(path_points) < 10:
+        print(route)
+        continue
+
+    path_points = rounded_indices(path_points, 100)
     routes = routes.append({'Route': route, 'Points': path_points}, ignore_index=True)
+
+print('Routes read...')
 
 map_plot = go.Figure()
 
-# add routes to map
-for i, val in routes.iterrows():
-    name = str(val['Route'])
-    points = val['Points']
-    map_plot.add_trace(go.Scattermapbox(
-        name="Route " + name,
-        mode="markers+lines",
-        lat=[round(x[0], 5) for x in points],
-        lon=[round(x[1], 5) for x in points],
-        marker={'size': 6},
-        line=dict(width=4)))
-
 dist_m = []
 
-for i, val1 in routes.iterrows():
-    dist_row = []
-    route1 = val1['Points']
-    for j, val2 in routes.iterrows():
-        if i == j:
-            dist_row.append(0)
-            continue
+dist_m_file_name = "dist_m.dat"
 
-        route2 = val2['Points']
-        c = lcs(route1, route2)
-        c2 = lcs(route2, route1)
+if not recalculate_distances and pathlib.Path(dist_m_file_name).exists():
+    with open(dist_m_file_name, "rb") as fp:  # Unpickling
+        dist_m = pickle.load(fp)
+else:
+    dist_m = calculate_dist_matrix()
+    with open(dist_m_file_name, "wb") as fp:  # Pickling
+        pickle.dump(dist_m, fp)
 
-        sim = c[-1][-1] / len(route1)
-        sim2 = c2[-1][-1] / len(route2)
-
-        if sim < sim2:
-            sim = sim2
-            c = c2
-            t = route1
-            route1 = route2
-            route2 = t
-
-        dist_row.append(1 - sim)
-        #
-        # m = len(route1)
-        # n = len(route2)
-        #
-        # common_part = back_track(c, route1, route2, m, n)
-        #
-        # if i >= j:
-        #     continue
-        #
-        # # add lcs to map
-        # name1 = str(val1['Route'])
-        # name2 = str(val2['Route'])
-        #
-        # map_plot.add_trace(go.Scattermapbox(
-        #     name="LCS (Route " + str(name1) + "; Route " + str(name2) + ")",
-        #     mode="markers",
-        #     lat=list(map(lambda x: round(x[0], 5), common_part)),
-        #     lon=list(map(lambda x: round(x[1], 5), common_part)),
-        #     marker={'size': 15}))
-
-    dist_m.append(dist_row)
+print('Distances calculated...')
 
 minLat = df.lat.min()
 minLng = df.lng.min()
@@ -120,47 +267,64 @@ map_plot.update_layout(
         'center': {'lon': minLng + (df.lng.max() - minLng) / 2,
                    'lat': minLat + (df.lat.max() - minLat) / 2},
         'style': "stamen-terrain",
-        'zoom': 14.5})
+        'zoom': 13.})
 
-print('dist_m')
-print(dist_m)
+print('Plot builded...')
+
+# convert the redundant n*n square matrix form into a condensed nC2 array
+# dist_m[{n choose 2}-{n-i choose 2} + (j-i-1)] is the distance between points i and j
+# dist_m = ssd.squareform(dist_m)
+
 # Perform hierarchical/agglomerative clustering
 Z = linkage(dist_m, 'ward')
-fig = plt.figure(figsize=(25, 10))
-print('Z')
-print(Z)
-# dn = dendrogram(Z)
-# plt.show()
+print('Linkage performed...')
+# print(Z)
 
-# by dendrogram we found optimal distance is:
-max_d = 1.5
-clusters = fcluster(Z, max_d, criterion='distance')
-print('clusters')
-print(clusters)
+dn = dendrogram(Z, labels=routes['Route'].to_numpy())
+plt.show()
+
+# by dendrogram we need to find optimal cluster count:
+max_d = 5
+print("Enter desired cluster count:")
+max_d = int(input())
+
+clusters = fcluster(Z, max_d, criterion='maxclust')
+print('Clustering performed...')
+# print('clusters')
+# print(clusters)
 
 routes['Cluster'] = clusters
 
 clusteredRoutes = routes.groupby(['Cluster'])
-print('clusteredRoutes')
-print(clusteredRoutes)
+
 for cluster, cl_routes in clusteredRoutes:
     coords = []
     for i, r in cl_routes.iterrows():
         for item in r['Points']:
             coords.append([round(x, 5) for x in list(item)])
 
+        color = palette[(cluster - 1) % len(palette)]
+        map_plot.add_trace(go.Scattermapbox(
+            name="Route " + str(r['Route']),
+            mode="markers+lines",
+            lat=[round(x[0], 5) for x in r['Points']],
+            lon=[round(x[1], 5) for x in r['Points']],
+            marker=dict(size=6, color=color, opacity=0.4),
+            line=dict(width=4, color=color),
+            opacity=0.4))
+
     lat = []
     lng = []
 
-    hull = alphashape.alphashape(coords, 10)
-    hull_pts = hull.exterior.coords.xy
+    # hull = alphashape.alphashape(coords, 0)
+    # hull_pts = hull.exterior.coords.xy
+    #
+    # map_plot.add_trace(go.Scattermapbox(
+    #     fill="toself",
+    #     mode="none",
+    #     name="Cluster #" + str(cluster),
+    #     lat=list(hull_pts[0]),
+    #     lon=list(hull_pts[1]),
+    #     opacity=0.5))
 
-    map_plot.add_trace(go.Scattermapbox(
-        fill="toself",
-        mode="none",
-        name="Cluster #" + str(cluster),
-        lat=list(hull_pts[0]),
-        lon=list(hull_pts[1]),
-        opacity=0.5))
-
-map_plot.show()
+map_plot.show(config={'displayModeBar': False})
