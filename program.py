@@ -172,12 +172,12 @@ plt.xlabel('Number of clusters')
 plt.ylabel('Inertia')
 plt.show()
 
-inertia_gain = [i-j for i, j in zip(inertia[:-1], inertia[1:])]
+inertia_gain = [(i/j-1)*100 for i, j in zip(inertia[:-1], inertia[1:])]
 plt.bar(range(1, len(inertia_gain) + 1), inertia_gain)
 # plt.plot(range(1, len(inertia_gain) + 1), inertia_gain)
 plt.grid()
 plt.xlabel('Number of clusters')
-plt.ylabel('Inertia gain')
+plt.ylabel('% Change in SSE from Previous Stage')
 plt.show()
 
 # by dendrogram we need to find optimal cluster count:
